@@ -8,6 +8,7 @@ kc_housing <- read_csv("kc_house_data.csv")
 View(kc_housing)
 colnames(kc_housing)
 dim(kc_houses)
+str(kc_houses)
 
 ## Creating our table
 kc_houses <- kc_housing %>% 
@@ -16,6 +17,11 @@ kc_houses <- kc_housing %>%
   select(transaction_id, everything()) %>% 
   separate(date, into = c("year_sold", "month_sold", "day_sold"), sep = "-") 
 
+kc_houses$year_sold <- as.numeric(kc_houses$year_sold)
+kc_houses$month_sold <- as.numeric(kc_houses$month_sold)
+kc_houses$day_sold <- as.numeric(kc_houses$day_sold)
+
+str(kc_houses)
 ## Filtering by variables - looking at range and unique variables
 kc_houses %>%  filter(sqft_living == 290) %>% View
 kc_houses <- kc_houses %>% filter(bedrooms != 33)
@@ -33,3 +39,7 @@ summary(kc_housing)
 ## sold twice so we group_by id, and date to see if they are redudant, and it turned out that
 ## every transaction is unique
 kc_housing %>% group_by(id, date) %>% summarise(count = n()) %>% filter(count>1)
+
+
+## save table as csv
+write_csv(kc_houses, "kc_houses_table.csv")
