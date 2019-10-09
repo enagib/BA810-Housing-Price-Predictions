@@ -56,11 +56,212 @@ ggplot(kc_housing, aes(sqft_living, price, col = view)) +
   geom_point(alpha = 0.3) +
   scale_y_continuous(breaks = seq(0,max(kc_housing$price),500000))
 
-View(kc_houses)
-
+## removed yr_renovated and added dummy variable for renovated
 kc_houses <- kc_houses %>% 
   mutate(renovated = ifelse(yr_renovated >0, 1, 0)) %>% 
   select(everything(), -yr_renovated)
-  
-View(kc_houses)
 
+## Create a map for king's county Washington
+
+library(ggplot2)
+library(ggmap)
+library(maps)
+library(mapdata)
+
+counties <- map_data("county")
+wa_county <- subset(counties, region == "washington")
+king_county <- subset(wa_county, subregion == "king")
+
+ggplot(king_county, aes(x = long, y = lat)) +
+  coord_fixed(1.3) + 
+  geom_polygon(color = "black", fill = "gray") 
+  
+########################################################################################################
+#YAO - segmenting long and lat into NW, NE, SE, SW
+### center of king county
+### 47.5480 ( lat) greater than this north , 121.9836 (long) greater than this, west
+########################################################################################################
+
+kc_houses %>%
+  mutate(lat_direction = ifelse(lat >=47.548,"N","S")) %>% 
+  mutate(long_direction = ifelse(abs(long) >=121.9836,"W","E")) %>% 
+  mutate(direction=paste(lat_direction,long_direction)) %>% 
+  select(-c("long","lat","long_direction","lat_direction")) -> kc_houses
+
+View(kc_houses)
+unique(kc_houses$direction)
+
+kc_houses %>% mutate(SW =ifelse(direction =="S W",1,0)) %>%
+  mutate(NW =ifelse(direction =="N W",1,0)) %>%
+  mutate(NE =ifelse(direction =="N E",1,0)) %>%
+  mutate(SE =ifelse(direction =="S E",1,0)) %>% 
+  select(-c(direction)) -> kc_house_new
+View(kc_house_new)
+
+kc_house_new %>% filter( (NW+NE+SE+SW)>1)
+
+########################################################################################################
+# ploting king's county map
+########################################################################################################
+
+library(ggplot2)
+library(ggmap)
+library(maps)
+library(mapdata)
+
+counties <- map_data("county")
+wa_county <- subset(counties, region == "washington")
+king_county <- subset(wa_county, subregion == "king")
+
+ggplot(king_county, aes(x = long, y = lat)) +
+  coord_fixed(1.3) + 
+  geom_polygon(color = "black", fill = "gray") +
+  qplot(kc_house_new, aes(x = long, y= lat))
+
+
+colnames(kc_house_new)
+kc_house_new %>% 
+  count(SW)
+kc_house_new %>% 
+  count(NW)
+kc_house_new %>% 
+  count(SW)
+kc_house_new %>% 
+  count(SW)
+
+########################################################################################################
+# Running LASSO regression
+########################################################################################################
+
+## Lasso regression
+library(glmnet)
+library(tidyverse) 
+library(magrittr) 
+library(ggplot2) 
+library(ggthemes)
+
+train <- round(0.8 * nrow(kc_house_new))
+test <- nrow(kc_house_new) - train
+
+# spliting data into train and test
+set.seed(98765)
+train_index <- sample(nrow(kc_house_new), train) # assign 17290 random rows to the train set
+
+colnames(kc_house_new)
+
+y_data <- kc_house_new$price / 1000
+x_data <- model.matrix( ~ -1 +  year_sold + month_sold + day_sold + bedrooms +
+                          bathrooms + sqft_living + sqft_lot + floors + waterfront + view +
+                          condition + grade + sqft_above + sqft_basement + yr_built + yr_renovated +
+                          zipcode + sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_house_new)
+nrow(x_data)
+View(y_train)
+
+# now split
+kc_train <- x_data[train_index,]
+kc_test <- x_data[-train_index,]
+y_train <- y_data[train_index]
+y_test <-  y_data[-train_index]
+
+#This will fit 100 lasso regressions for different values of lambda (chosen automatically) 
+est <- glmnet(kc_train, y_train, alpha = 1, nlambda = 100)
+
+# Examine lambda 
+est$lambda
+
+## use models to create predictions for both train and test
+y_train_hat <- predict(est, newx = kc_train) 
+y_test_hat <- predict(est, newx = kc_test) 
+
+# write code to create a vector that contains MSEs estimates for the train data 
+mse_train <- colMeans((y_train - y_train_hat)^2)
+mse_test <- colMeans((y_test - y_test_hat)^2) 
+lambda_min_mse_train <- mse_train[which.min(mse_train)]
+lambda_min_mse_test <- mse_test[which.min(mse_test)]
+
+# c3reate a tibble of train MSEs and lambdas 
+kc_mse_train <- tibble( 
+  lambda = est$lambda, 
+  mse = mse_train, 
+  dataset = "Train")
+
+kc_mse_test <- tibble( 
+  lambda = est$lambda, 
+  mse = mse_test, 
+  dataset = "Test")
+
+kc_mse <- rbind(kc_mse_train, kc_mse_test)
+
+## Figure out lowest mse and the respective lambda for the train and test 
+kc_mse %>% 
+  group_by(dataset) %>% 
+  filter(mse == min(mse)) %>% View
+
+## plot the mse for train and test and mark the min points
+ggplot(kc_mse, aes(lambda, mse, col = dataset)) + 
+  geom_line() + 
+  geom_point(aes(y = 38229.91	, x = 0.3485395), size = 2, color = "skyblue") +
+  geom_point(aes(y = 42027.13	 , x = 0.3485395), size = 2, color = "red") + 
+  ggtitle("MSE for each Model") +
+  scale_x_reverse()
+
+print(lambda_min_mse_test)
+
+coef(est , s = lambda_min_mse_test)
+
+
+########################################################################################################
+# Running CROSS VALIDATION
+########################################################################################################
+
+##cross validation
+y <- kc_house_new$price
+x_dat <- mydata_matrix[, -ncol(kc_house_new)]
+
+
+#The command loads an input matrix x and a response vector y 
+#We fit the model using the most basic call to glmnet.
+fit = glmnet(x_data, y)
+plot(fit)
+
+#We can visualize the coefficients by executing the plot function:
+cvfit = cv.glmnet(x_data, y, type.measure = "mse", nfolds = 20)
+
+#We can obtain the actual coefficients at one or more λ’s within the range of the sequence:
+coef(fit,s=0.1)
+
+#cv.glmnet is the main function to do cross-validation here
+cvfit <- cv.glmnet(y, x_data)
+plot(cvfit)
+
+#the value of λ that gives minimum mean cross-validated error. 
+cvfit$lambda.min
+coef(cvfit, s = "lambda.min")
+
+predict(cvfit, newx = kc_test, s = "lambda.min")
+
+
+
+####################################################################################
+# IGNORE
+####################################################################################
+# Practice
+kc <- kc_houses %>% select(lat, long, zipcode)
+colnames(kc_houses)
+View(kc)
+paste(cut(kc$lat, 5, labels=FALSE), cut(kc$long, 5, labels=FALSE))
+
+within(kc, {
+  grp.lat = cut(lat, 3, labels = FALSE)
+  grp.lon = cut(long, 3, labels = FALSE)
+})
+
+#Want the minimum lon value for which grp.lon = 1 and the maximum lon value for which grp.lon=1
+
+start_grp1_lon <- min(kc$long[kc$grp.long==1])
+start_grp2_lon <- min(kc$long[kc$grp.long==2])
+start_grp3_lon <- min(kc$long[kc$grp.long==3])
+
+start_grp1_lat <- min(kc$lat[kc$grp.lat==1])
+start_grp2_lat <- min(kc$lat[kc$grp.lat==2])
+start_grp3_lat <- min(kc$lat[kc$grp.lat==3])
