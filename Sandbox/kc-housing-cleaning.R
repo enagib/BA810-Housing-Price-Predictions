@@ -107,11 +107,56 @@ kc_house_new$price <- kc_house_new$price/1000
 kc_house_zc <- kc_house_new %>% select(zipcode) %>% mutate(zipcode = factor(zipcode))
 zp <- dummy(kc_house_zc)
 
+
 ## FINAL TABLE NAME _ WITHOUT ZIP CODES
 kc_house_new 
+
+########################################################################################################
+# MAY - Adding city columns and dummy variables 
+################################################################################################
+
+library(readxl)
+read_excel("Sandbox/zipcode.xlsx") -> ddzipcode
+class(ddzipcode)
+View(ddzipcode)
+ddzipcode %>% select(Zipcode, City) -> ddzipcode2
+left_join(kc_house_new, ddzipcode2, by = c("zipcode" = "Zipcode")) -> kc_house_new2
+kc_house_new2 %>% mutate(city = factor(City)) %>% select(-City) -> kc_house_new3
+kc_house_new3 %>% select(city) -> city
+dummy::dummy(city) -> city2
+cbind(kc_house_new3, city2) -> kc_house_new_4
+View(kc_house_new_4)
+colnames(kc_house_new_4)
+
+View(ddzipcode2)
+kc_house_new_4 <- kc_house_new_4 %>% filter(bedrooms != 0)
+
+
+## FINAL TABLE NAME _ WITHOUT ZIP CODES
+kc_house_new <- kc_house_new_4
 ## FINAL TABLE NAME _ WITH ZIP CODES
-kc_house_zp <- cbind(kc_house_new, zp)
-dim(kc_house_zp)
+kc_house_p <- kc_house_new_4 %>% 
+  select(-c(transaction_id,house_id, zipcode, 
+                    year_sold, month_sold, day_sold, yr_built))
+
+colnames(kc_house_new_4)
+# Table with directions 
+kc_direction <- kc_house_new_4 %>% 
+  select(-c(transaction_id,house_id, zipcode, 
+            year_sold, month_sold, day_sold, yr_built, city, city_Auburn, city_Bellevue,     
+            city_Black.Diamond, city_Bothell, city_Carnation, 
+            city_Duvall, city_Enumclaw, city_Fall.City,
+            city_Federal.Way, city_Issaquah, city_Kenmore,    
+            city_Kent, city_Kirkland, city_Maple.Valley,
+            city_Medina, city_Mercer.Island, city_North.Bend,
+            city_Redmond, city_Renton, city_Sammamish,   
+            city_Seattle, city_Snoqualmie, city_Vashon,    
+            city_Woodinville))
+
+#Table with citites
+kc_cities <- kc_house_new_4 %>% 
+  select(-c(transaction_id,house_id, zipcode, 
+            year_sold, month_sold, day_sold, yr_built, SW, NW, NE, SE))
 
 ########################################################################################################
 # ploting king's county map
@@ -138,23 +183,142 @@ kc_house_new %>%
   count(SW)
 
 ########################################################################################################
-# Eman- LASSO regression
+# Eman - LASSO
 ########################################################################################################
-
-## Lasso regression
-train <- round(0.8 * nrow(kc_house_new))
-test <- nrow(kc_house_new) - train
+train <- round(0.8 * nrow(kc_direction))
+test <- nrow(kc_direction) - train
 
 # spliting data into train and test
 set.seed(98765)
-train_index <- sample(nrow(kc_house_new), train) # assign 17290 random rows to the train set
+train_index <- sample(nrow(kc_direction), train) # assign 17290 random rows to the train set
+kc_train <- x_data[train_index,]
+kc_test <- x_data[-train_index,]
 
-colnames(kc_house_new)
+kc_train <- as.data.frame(kc_train)
+kc_test<- as.data.frame(kc_test)
 
-y_data <- kc_house_new$price
+x_train <- model.matrix(~ -1 + bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+                     view + condition + grade + sqft_above + sqft_basement + renovated +
+                     sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_train)
+
+x_test <- model.matrix(~ -1 + bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+                          view + condition + grade + sqft_above + sqft_basement + renovated +
+                          sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_test)
+
+
+fit_lasso <- cv.glmnet(x_train, kc_train$price, alpha = 1, nfolds = 10)
+yhat_train_lasso <- predict(fit_lasso, x_train, s = fit_lasso$lambda.min)
+mse_train_lasso <- mean((df_train$y - yhat_train_lasso)^2)
+yhat_test_lasso <- predict(fit_lasso, x_test, s = fit_lasso$lambda.min)
+mse_test_lasso <- mean((df_test$y - yhat_test_lasso)^2)
+mse_train_lasso
+
+########################################################################################################
+# Eman - CROSS VALIDATION - LASSO
+########################################################################################################
+
 x_data <- model.matrix( ~ -1 + bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
                           view + condition + grade + sqft_above + sqft_basement + renovated +
-                          sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_house_new)
+                          sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_direction)
+## outcome is median house value in millions, so divide the median_house_value by 1e6
+y_data <- kc_direction$price
+## set train set using rows 1 to 5000
+x_train <- x_data[train_index, ]
+y_train <- y_data[train_index]
+## set test set using rows 15001 to 18000
+x_test <- x_data[-train_index,  ]
+y_test <- y_data[-train_index]
+
+fit_lasso <- cv.glmnet(x_train, y_train , alpha = 1, nfolds = 10)
+
+yhat_train_lasso <- predict(fit_lasso, x_train, s = fit_lasso$lambda.min)
+mse_train_lasso <- mean((y_train - yhat_train_lasso)^2)
+yhat_test_lasso <- predict(fit_lasso, x_test, s = fit_lasso$lambda.min)
+mse_test_lasso <- mean((y_test - yhat_test_lasso)^2)
+mse_train_lasso
+mse_test_lasso
+
+
+##cross validation
+kc_train <- x_data[train_index,]
+kc_test <- x_data[-train_index,]
+
+y_data <- kc_direction$price
+y_train <- y_data[train_index]
+y_test <-  y_data[-train_index]
+
+y <- kc_direction$price
+x_data <- model.matrix( ~ -1 + bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+                          view + condition + grade + sqft_above + sqft_basement + renovated +
+                          sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_direction)
+
+# #The command loads an input matrix x and a response vector y 
+# #We fit the model using the most basic call to glmnet.
+# fit = glmnet(x_data, y, alpha = 1)
+# plot(fit)
+
+#cv.glmnet is the main function to do cross-validation here
+cvfit <- cv.glmnet(x_data, y, alpha = 1, type.measure = "mse", nfolds = 10, lambda = c(0, 0.01, 0.1, 0.3, 0.4, 1))
+plot(cvfit)
+View(kc_direction)
+#the value of λ that gives minimum mean cross-validated error. 
+cvfit$lambda.min
+cvfit$lambda
+coef(cvfit, s = "lambda.min")
+
+mse.min <- cvfit$cvm[cvfit$lambda == cvfit$lambda.min]
+
+cvfit$lambda
+lambda1 <- cvfit$lambda
+
+y_train_hat <- predict(cvfit, newx = kc_train)
+View(y_train_hat)
+y_test_hat <- predict(cvfit, newx = kc_test)
+
+# write code to create a vector that contains MSEs estimates for the train data 
+mse_train <- colMeans((y_train - y_train_hat)^2)
+mse_test <- colMeans((y_test - y_test_hat)^2) 
+
+# create a tibble of train MSEs and lambdas 
+kc_mse_train <- tibble( 
+  lambda = cvfit$lambda, 
+  mse = mse_train, 
+  dataset = "Train")
+
+kc_mse_test <- tibble( 
+  lambda = cvfit$lambda, 
+  mse = mse_test, 
+  dataset = "Test")
+
+kc_mse <- rbind(kc_mse_train, kc_mse_test)
+colnames(kc_mse)
+
+lambda_min_mse_train <-kc_mse_train$lambda[which.min(kc_mse_train$mse)]
+lambda_min_mse_test <- kc_mse_test$lambda[which.min(kc_mse_test$mse)]
+min_mse_train <- kc_mse_train$mse[which.min(kc_mse_train$mse)]
+min_mse_test <- kc_mse_test$mse[which.min(kc_mse_test$mse)]
+########################################################################################################
+# Eman- LASSO regression
+########################################################################################################
+y_hat2 <- predict(cvfit, s = cvfit$lambda.min, newx = kc_train)
+mean((y_train - y_hat)^2)
+
+y_hat <- predict(cvfit, s = lambda_min_mse_train, newx = kc_train)
+mean((y_train - y_hat)^2)
+
+
+## Lasso regression
+train <- round(0.8 * nrow(kc_direction))
+test <- nrow(kc_direction) - train
+
+# spliting data into train and test
+set.seed(98765)
+train_index <- sample(nrow(kc_direction), train) # assign 17290 random rows to the train set
+
+y_data <- kc_direction$price
+x_data <- model.matrix( ~ -1 + bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+                          view + condition + grade + sqft_above + sqft_basement + renovated +
+                          sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_direction)
 nrow(x_data)
 View(y_train)
 
@@ -165,7 +329,7 @@ y_train <- y_data[train_index]
 y_test <-  y_data[-train_index]
 
 #This will fit 100 lasso regressions for different values of lambda (chosen automatically) 
-est <- glmnet(kc_train, y_train, alpha = 1, nlambda = 100)
+est <- glmnet(kc_train, y_train, alpha = 1, nfolds= 10)
 
 # Examine lambda 
 est$lambda
@@ -212,50 +376,19 @@ ggplot(kc_mse, aes(lambda, mse, col = dataset)) +
 
 coef(est , s = lambda_min_mse_test)
 
-########################################################################################################
-# Eman - CROSS VALIDATION
-########################################################################################################
-
-##cross validation
-y <- kc_house_new$price
-
-#The command loads an input matrix x and a response vector y 
-#We fit the model using the most basic call to glmnet.
-fit = glmnet(x_data, y)
-plot(fit)
-
-#We can visualize the coefficients by executing the plot function:
-cvfit = cv.glmnet(x_data, y, type.measure = "mse", nfolds = 20)
-
-#We can obtain the actual coefficients at one or more λ’s within the range of the sequence:
-coef(fit,s=0.1)
-
-#cv.glmnet is the main function to do cross-validation here
-cvfit <- cv.glmnet(y, x_data)
-plot(cvfit)
-
-#the value of λ that gives minimum mean cross-validated error. 
-cvfit$lambda.min
-coef(cvfit, s = "lambda.min")
-
-predict(cvfit, newx = kc_test, s = "lambda.min")
 
 #####################################################################################
 # YAO - FORWARD SELECTION
 ######################################################################################
 # now split
-kc_train <- kc_house_new[train_index,]
-kc_test <- kc_house_new[-train_index,]
+kc_train <- kc_cities[train_index,]
+kc_test <- kc_cities[-train_index,]
 
-kc_houses_p <- kc_house_new 
-View(kc_house_new)
-kc_houses_p$price <- kc_houses_p$price
-View(kc_houses_p)
 
 ## loop 
 xnames <- colnames(kc_train)
 xnames <- xnames[!xnames %in% c("price","transaction_id","house_id", "zipcode", 
-                                "year_sold", "month_sold", "day_sold", "yr_built")] ### remove y predictor 
+                                "year_sold", "month_sold", "day_sold", "yr_built", "city")] ### remove y predictor 
 
 xnames
 
@@ -315,11 +448,13 @@ ggplot(log_fw, aes(seq_along(xname), mse_test)) +
   scale_y_continuous("MSE test") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+sqrt(best_mse_test)
+
 #####################################################################################
 # Ted - RANDOM FOREST
 ######################################################################################
-kc_train <- kc_house_new[train_index,]
-kc_test <- kc_house_new[-train_index,]
+kc_train <- kc_house_p[train_index,]
+kc_test <- kc_house_p[-train_index,]
 
 kc_houses_p <- kc_house_new 
 kc_houses_p$price <- kc_houses_p$price
