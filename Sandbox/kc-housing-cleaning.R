@@ -1,6 +1,19 @@
-install.packages("tidyverse")
 library(tidyverse)
 library(ggplot2)
+library(ggmap)
+library(maps)
+library(mapdata)
+library(glmnet)
+library(magrittr) 
+library(ggthemes)
+library(dummy)
+library(randomForest)
+library(gbm)
+
+
+#########################################################################################
+# Examining our data
+#########################################################################################
 
 ## Loading our table
 kc_housing <- read_csv("kc_house_data.csv")
@@ -61,25 +74,10 @@ kc_houses <- kc_houses %>%
   mutate(renovated = ifelse(yr_renovated >0, 1, 0)) %>% 
   select(everything(), -yr_renovated)
 
-## Create a map for king's county Washington
-
-library(ggplot2)
-library(ggmap)
-library(maps)
-library(mapdata)
-
-counties <- map_data("county")
-wa_county <- subset(counties, region == "washington")
-king_county <- subset(wa_county, subregion == "king")
-
-ggplot(king_county, aes(x = long, y = lat)) +
-  coord_fixed(1.3) + 
-  geom_polygon(color = "black", fill = "gray") 
-  
 ########################################################################################################
-#YAO - segmenting long and lat into NW, NE, SE, SW
-### center of king county
-### 47.5480 ( lat) greater than this north , 121.9836 (long) greater than this, west
+##YAO - segmenting long and lat into NW, NE, SE, SW
+## center of king county
+## 47.5480 ( lat) greater than this north , 121.9836 (long) greater than this, west
 ########################################################################################################
 
 kc_houses %>%
@@ -100,15 +98,24 @@ View(kc_house_new)
 
 kc_house_new %>% filter( (NW+NE+SE+SW)>1)
 
+kc_house_new <- kc_house_new %>% mutate(years_old = 2019 - yr_built)
+
+#changed house prices to k
+kc_house_new$price <- kc_house_new$price/1000
+
+#Spread zipcode into columns and made them dummy variables
+kc_house_zc <- kc_house_new %>% select(zipcode) %>% mutate(zipcode = factor(zipcode))
+zp <- dummy(kc_house_zc)
+
+## FINAL TABLE NAME _ WITHOUT ZIP CODES
+kc_house_new 
+## FINAL TABLE NAME _ WITH ZIP CODES
+kc_house_zp <- cbind(kc_house_new, zp)
+dim(kc_house_zp)
+
 ########################################################################################################
 # ploting king's county map
 ########################################################################################################
-
-library(ggplot2)
-library(ggmap)
-library(maps)
-library(mapdata)
-
 counties <- map_data("county")
 wa_county <- subset(counties, region == "washington")
 king_county <- subset(wa_county, subregion == "king")
@@ -117,6 +124,7 @@ ggplot(king_county, aes(x = long, y = lat)) +
   coord_fixed(1.3) + 
   geom_polygon(color = "black", fill = "gray") +
   qplot(kc_house_new, aes(x = long, y= lat))
+counties <- map_data("county")
 
 
 colnames(kc_house_new)
@@ -130,16 +138,10 @@ kc_house_new %>%
   count(SW)
 
 ########################################################################################################
-# Running LASSO regression
+# Eman- LASSO regression
 ########################################################################################################
 
 ## Lasso regression
-library(glmnet)
-library(tidyverse) 
-library(magrittr) 
-library(ggplot2) 
-library(ggthemes)
-
 train <- round(0.8 * nrow(kc_house_new))
 test <- nrow(kc_house_new) - train
 
@@ -149,11 +151,10 @@ train_index <- sample(nrow(kc_house_new), train) # assign 17290 random rows to t
 
 colnames(kc_house_new)
 
-y_data <- kc_house_new$price / 1000
-x_data <- model.matrix( ~ -1 +  year_sold + month_sold + day_sold + bedrooms +
-                          bathrooms + sqft_living + sqft_lot + floors + waterfront + view +
-                          condition + grade + sqft_above + sqft_basement + yr_built + yr_renovated +
-                          zipcode + sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_house_new)
+y_data <- kc_house_new$price
+x_data <- model.matrix( ~ -1 + bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+                          view + condition + grade + sqft_above + sqft_basement + renovated +
+                          sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_house_new)
 nrow(x_data)
 View(y_train)
 
@@ -176,8 +177,6 @@ y_test_hat <- predict(est, newx = kc_test)
 # write code to create a vector that contains MSEs estimates for the train data 
 mse_train <- colMeans((y_train - y_train_hat)^2)
 mse_test <- colMeans((y_test - y_test_hat)^2) 
-lambda_min_mse_train <- mse_train[which.min(mse_train)]
-lambda_min_mse_test <- mse_test[which.min(mse_test)]
 
 # c3reate a tibble of train MSEs and lambdas 
 kc_mse_train <- tibble( 
@@ -191,33 +190,34 @@ kc_mse_test <- tibble(
   dataset = "Test")
 
 kc_mse <- rbind(kc_mse_train, kc_mse_test)
+colnames(kc_mse)
 
 ## Figure out lowest mse and the respective lambda for the train and test 
 kc_mse %>% 
   group_by(dataset) %>% 
   filter(mse == min(mse)) %>% View
 
+lambda_min_mse_train <-kc_mse_train$lambda[which.min(kc_mse_train$mse)]
+lambda_min_mse_test <- kc_mse_test$lambda[which.min(kc_mse_test$mse)]
+min_mse_train <- kc_mse_train$mse[which.min(kc_mse_train$mse)]
+min_mse_test <- kc_mse_test$mse[which.min(kc_mse_test$mse)]
+
 ## plot the mse for train and test and mark the min points
 ggplot(kc_mse, aes(lambda, mse, col = dataset)) + 
   geom_line() + 
-  geom_point(aes(y = 38229.91	, x = 0.3485395), size = 2, color = "skyblue") +
-  geom_point(aes(y = 42027.13	 , x = 0.3485395), size = 2, color = "red") + 
+  geom_point(aes(y = min_mse_train 	, x = lambda_min_mse_train ), size = 2, color = "skyblue") +
+  geom_point(aes(y = min_mse_test	, x = lambda_min_mse_test), size = 2, color = "red") + 
   ggtitle("MSE for each Model") +
   scale_x_reverse()
 
-print(lambda_min_mse_test)
-
 coef(est , s = lambda_min_mse_test)
 
-
 ########################################################################################################
-# Running CROSS VALIDATION
+# Eman - CROSS VALIDATION
 ########################################################################################################
 
 ##cross validation
 y <- kc_house_new$price
-x_dat <- mydata_matrix[, -ncol(kc_house_new)]
-
 
 #The command loads an input matrix x and a response vector y 
 #We fit the model using the most basic call to glmnet.
@@ -240,28 +240,133 @@ coef(cvfit, s = "lambda.min")
 
 predict(cvfit, newx = kc_test, s = "lambda.min")
 
+#####################################################################################
+# YAO - FORWARD SELECTION
+######################################################################################
+# now split
+kc_train <- kc_house_new[train_index,]
+kc_test <- kc_house_new[-train_index,]
 
+kc_houses_p <- kc_house_new 
+View(kc_house_new)
+kc_houses_p$price <- kc_houses_p$price
+View(kc_houses_p)
 
-####################################################################################
-# IGNORE
-####################################################################################
-# Practice
-kc <- kc_houses %>% select(lat, long, zipcode)
-colnames(kc_houses)
-View(kc)
-paste(cut(kc$lat, 5, labels=FALSE), cut(kc$long, 5, labels=FALSE))
+## loop 
+xnames <- colnames(kc_train)
+xnames <- xnames[!xnames %in% c("price","transaction_id","house_id", "zipcode", 
+                                "year_sold", "month_sold", "day_sold", "yr_built")] ### remove y predictor 
 
-within(kc, {
-  grp.lat = cut(lat, 3, labels = FALSE)
-  grp.lon = cut(long, 3, labels = FALSE)
-})
+xnames
 
-#Want the minimum lon value for which grp.lon = 1 and the maximum lon value for which grp.lon=1
+fit_fw <- lm(price ~ 1, data = kc_train)
 
-start_grp1_lon <- min(kc$long[kc$grp.long==1])
-start_grp2_lon <- min(kc$long[kc$grp.long==2])
-start_grp3_lon <- min(kc$long[kc$grp.long==3])
+yhat_train <- predict(fit_fw, kc_train)
+mse_train <- mean((kc_train$price - yhat_train) ^ 2)
 
-start_grp1_lat <- min(kc$lat[kc$grp.lat==1])
-start_grp2_lat <- min(kc$lat[kc$grp.lat==2])
-start_grp3_lat <- min(kc$lat[kc$grp.lat==3])
+yhat_test <- predict(fit_fw, kc_test)
+mse_test <- mean((kc_test$price - yhat_test) ^ 2)
+
+xname <- "intercept"
+
+log_fw <- tibble(
+  xname = xname,
+  model = paste0(deparse(fit_fw$call), collapse = ""),
+  mse_train = mse_train,
+  mse_test = mse_test)
+
+while (length(xnames) > 0) {
+  best_mse_train <- NA
+  best_mse_test <- NA
+  best_fit_fw <- NA
+  best_xname <- NA
+  
+  for (xname in xnames) {
+    fit_fw_tmp <- update(fit_fw, as.formula(paste0(". ~ . + ", xname)))
+    yhat_train_tmp <- predict(fit_fw_tmp, kc_train)
+    mse_train_tmp <- mean((kc_train$price - yhat_train_tmp) ^ 2)
+    yhat_test_tmp <- predict(fit_fw_tmp, kc_test)
+    mse_test_tmp <- mean((kc_test$price - yhat_test_tmp) ^ 2)
+    
+    if (is.na(best_mse_test) | mse_test_tmp < best_mse_test) {
+      best_xname <- xname
+      best_fit_fw <- fit_fw_tmp
+      best_mse_train <- mse_train_tmp
+      best_mse_test <- mse_test_tmp
+    }
+  }
+  log_fw <- log_fw %>% add_row(
+    xname = best_xname,
+    model = paste0(deparse(best_fit_fw$call), collapse = ""),
+    mse_train = best_mse_train,
+    mse_test = best_mse_test
+  )
+  fit_fw <- best_fit_fw
+  xnames <- xnames[xnames!=best_xname]
+}
+
+### ggplot 
+ggplot(log_fw, aes(seq_along(xname), mse_test)) +
+  geom_point() +
+  geom_line() +
+  geom_point(aes(y=mse_train), color="blue") +
+  geom_line(aes(y=mse_train), color="blue") +
+  scale_x_continuous("Variables", labels = log_fw$xname, breaks = seq_along(log_fw$xname)) +
+  scale_y_continuous("MSE test") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#####################################################################################
+# Ted - RANDOM FOREST
+######################################################################################
+kc_train <- kc_house_new[train_index,]
+kc_test <- kc_house_new[-train_index,]
+
+kc_houses_p <- kc_house_new 
+kc_houses_p$price <- kc_houses_p$price
+
+# here's one simple formula -- it's up to your to add more predictors as you see fit
+t1 <- as.formula(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+                   view + condition + grade + sqft_above + sqft_basement + renovated +
+                   sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_house_new)
+
+# the [, -1] means take all columns of the matrix except the first column,
+# which is an intercept added by default
+x1_train <- model.matrix(t1, kc_train)[, -1]
+y_train <- kc_train$price
+
+x1_test <- model.matrix(t1, kc_test)[, -1]
+y_test <- kc_test$price
+
+# We will fit a random forest
+fit_rf <- randomForest(t1,
+                       kc_train,
+                       ntree=10,
+                       do.trace=F)
+
+#We can check which variables are most predictive using a variable importance plot
+varImpPlot(fit_rf)
+
+# Making predictions and computing training MSE
+yhat_rf <- predict(fit_rf, kc_train)
+mse_rf <- mean((yhat_rf - y_train) ^ 2)
+print(mse_rf)
+
+#####################################################################################
+# Ted - BOOSTED TREES
+######################################################################################
+
+#We will fit a boosted forest.
+fit_btree <- gbm(t1,
+                 data = kc_train,
+                 distribution = "gaussian",
+                 n.trees = 100,
+                 interaction.depth = 2,
+                 shrinkage = 0.001)
+
+#We can check which variables are most predictive as follows
+relative.influence(fit_btree)
+
+# Making predictions and computing training MSE
+yhat_btree <- predict(fit_btree, kc_train, n.trees = 100)
+mse_btree <- mean((yhat_btree - y_train) ^ 2)
+print(mse_btree)
