@@ -1,0 +1,104 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+### **Data Overview and Cleaning**
+
+--- 
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(dummy)
+```
+
+
+##### **Read in data**
+```{r}
+kc_housing <- read_csv("/cloud/project/kc_house_data.csv")
+```
+
+---
+
+
+##### **Glimpse of data**
+```{r}
+str(kc_housing, give.attr = F)
+```
+
+
+#### Data Cleaning
+* We viewd the id and found that some id are not unique; this is because some houses are sold twice. We group_by id, and date, seeing if they were actually sold on different date to check reduandency. It turned out that every transaction is unique. 
+```{r}
+kc_housing %>% group_by(id, date) %>% summarise(count = n()) %>% filter(count>1)
+```
+
+* Gave eaach transaction a unique transaction number
+* Seperated the date in year, month, and day; convert them to numeric
+* Removed the outliers: (1) 0 bedrooms but more than 1 bathromms and sqft is large   (2) 33 bedrooms,1.75 bathrooms 
+* removed yr_renovated and added dummy variable for renovated
+* segmented long and lat into NW, NE, SE, SW based on center of king county(47.5480, -121.9836)
+* Added city columns and dummy variables 
+
+**note: use either price or priceLog (log of price, base 2)**
+```{r}
+kc_houses <- kc_housing %>% na.omit() %>% 
+  ## transaction id 
+  mutate(transaction_id = row_number()) %>% 
+  rename("house_id" = id) %>% 
+  select(transaction_id, everything()) %>% 
+  ## seperate date
+  separate(date, into = c("year_sold", "month_sold", "day_sold"), sep = "-") %>% 
+  mutate(year_sold = as.numeric(year_sold),
+         month_sold = as.numeric(month_sold),
+         day_sold = as.numeric(day_sold)) %>%
+  ## removed outlier
+  filter(bedrooms != 33  & bedrooms != 0) %>% 
+  ## dummy yr_removated and direction, and years_old
+  mutate(renovated = ifelse(yr_renovated >0, 1, 0),
+         lat_direction = ifelse(lat >=47.548,"N","S"),
+         long_direction = ifelse(abs(long) >=121.9836,"W","E"),
+         direction=paste0(lat_direction,long_direction),
+         SW =ifelse(direction =="SW",1,0),
+         NW =ifelse(direction =="NW",1,0),
+         NE =ifelse(direction =="NE",1,0),
+         SE =ifelse(direction =="SE",1,0),
+         years_old = 2019 - yr_built,
+         price = price / 1000,
+         priceLog = log2(price)) %>% 
+  ## compare the sqft with neighberhood
+  mutate(sqft_living_comp = sqft_living / sqft_living15,
+         sqft_log_comp = sqft_lot / sqft_lot15)
+
+## add city 
+read_excel("/cloud/project/Sandbox/zipcode.xlsx") -> ddzipcode
+ddzipcode %>% select(Zipcode, City) -> ddzipcode2
+left_join(kc_houses, ddzipcode2, by = c("zipcode" = "Zipcode")) -> kc_house_new_2
+kc_house_new_2 %>% mutate(city = factor(City)) %>% select(-City) -> kc_house_new_3
+kc_house_new_3 %>% select(city) -> city
+dummy::dummy(city) -> city2
+cbind(kc_house_new_3, city2) -> kc_house_new4
+
+## final version
+kc_house_new4 %>% 
+  select(-c(yr_renovated, lat, long, long_direction, lat_direction, direction,
+            transaction_id,house_id, zipcode, year_sold, month_sold, day_sold,
+            yr_built, sqft_log_comp, sqft_living_comp)) -> kc_house_final
+
+## colnames(kc_house_final)
+## colnames(kc_house_final)
+ ## without zipcode and city
+kc_house_final %>% select(-c(22:46)) -> kc_house_direction
+
+## without direction 
+kc_house_final %>% select(-c(16:19, 22)) -> kc_house_cities
+
+## colnames(kc_house_cities)
+## dim(kc_house_cities)
+## colnames(kc_house_direction)
+## dim(kc_house_direction)
+
+```
+

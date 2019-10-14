@@ -453,27 +453,32 @@ sqrt(best_mse_test)
 #####################################################################################
 # Ted - RANDOM FOREST
 ######################################################################################
-kc_train <- kc_house_p[train_index,]
-kc_test <- kc_house_p[-train_index,]
+kc_train <- kc_cities[train_index,]
+kc_test <- kc_cities[-train_index,]
 
-kc_houses_p <- kc_house_new 
-kc_houses_p$price <- kc_houses_p$price
+kc_houses_p <- kc_cities
+kc_houses_p$price <- kc_cities$price
 
 # here's one simple formula -- it's up to your to add more predictors as you see fit
-t1 <- as.formula(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
+f <- as.formula(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + floors + waterfront + 
                    view + condition + grade + sqft_above + sqft_basement + renovated +
-                   sqft_living15 + sqft_lot15 + SW + NW + NE + SE, kc_house_new)
+                   sqft_living15 + sqft_lot15 + city_Auburn + city_Bellevue + city_Black.Diamond +
+                   city_Bothell + city_Carnation + city_Duvall + city_Enumclaw + city_Fall.City +
+                   city_Federal.Way +city_Issaquah+ city_Kenmore + city_Kent + city_Kirkland + city_Maple.Valley +
+                   city_Medina + city_Mercer.Island + city_North.Bend + city_Redmond + city_Renton + city_Sammamish +
+                   city_Seattle + city_Snoqualmie + city_Vashon + city_Woodinville)
 
 # the [, -1] means take all columns of the matrix except the first column,
 # which is an intercept added by default
 x1_train <- model.matrix(t1, kc_train)[, -1]
-y_train <- kc_train$price
-
 x1_test <- model.matrix(t1, kc_test)[, -1]
+
+
+y_train <- kc_train$price
 y_test <- kc_test$price
 
 # We will fit a random forest
-fit_rf <- randomForest(t1,
+fit_rf <- randomForest(f,
                        kc_train,
                        ntree=10,
                        do.trace=F)
