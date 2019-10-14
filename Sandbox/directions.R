@@ -259,3 +259,117 @@ best_mse_test
 
 sqrt(best_mse_test)
 
+#####################################################################################
+# MAY- RANDOM FOREST - WE NEED MSE
+######################################################################################
+
+xnames <- colnames(kc_direction)
+xnames <- xnames[!xnames %in% c("price", "bedrooms", "city")]
+
+loopformula <- " price ~ bedrooms"
+for (xname in xnames) {
+  loopformula <- paste(loopformula, "+", xname, sep = "")
+}
+f <- as.formula(loopformula)
+f
+
+train <- round(0.8 * nrow(kc_direction))
+test <- nrow(kc_direction) - train
+
+
+# spliting data into train and test
+set.seed(98765)
+train_index <- sample(nrow(kc_direction), train) # assign 17290 random rows to the train set
+kc_train <- kc_direction[train_index,]
+kc_test <- kc_direction[-train_index,]
+
+
+x1_train <- model.matrix(f, kc_train)[, -1]
+x1_test <- model.matrix(t1, kc_test)[, -1]
+
+y_train <- kc_train$price
+y_test <- kc_test$price
+
+fit_rf <- randomForest(f,
+                       kc_train,
+                       ntree = 10,
+                       do.trace = F)
+
+varImpPlot(fit_rf)
+
+
+y_hat_train_random <- predict(fit_rf, kc_train)
+tree_mse_train_random <- mean((y_hat_train_random - y_train)^2)
+y_hat_test_random <- predict(fit_rf, kc_test)
+tree_mse_test_random <- mean((y_hat_test_random - y_test)^2)
+
+
+#####################################################################################
+# MAY- TREES - WE NEED MSE
+######################################################################################
+library(rpart)
+library(rpart.plot)
+
+fit.tree <- rpart(f,
+                  kc_train,
+                  control = rpart.control(cp = 0.001))
+par(xpd = TRUE)
+plot(fit.tree, compress=TRUE)
+text(fit.tree, use.n=TRUE)
+
+y_hat_train <- predict(fit.tree, kc_train)
+tree_mse_train <- mean((y_hat_train - y_train)^2)
+y_hat_test <- predict(fit.tree, kc_test)
+tree_mse_test <- mean((y_hat_test - y_test)^2)
+
+#####################################################################################
+# MAY- Boosting TREES - WE NEED MSE
+######################################################################################
+fit_btree <- gbm(f,
+                 data = kc_train,
+                 distribution = "gaussian",
+                 n.trees = 1000,
+                 interaction.depth = 4,
+                 shrinkage = 0.001)
+
+summary(fit_btree)
+relative.influence(fit_btree)
+
+y_hat_train_boosting <- predict(fit_btree, kc_train, n.trees = 100)
+tree_mse_train_boosting <- mean((y_hat_train_boosting - y_train)^2)
+y_hat_test_boosting <- predict(fit_btree, kc_test, n.trees = 100)
+tree_mse_test_boosting <- mean((y_hat_test_boosting - y_test)^2)
+
+#####################################################################################
+# MAY- Bagging TREES - WE NEED MSE
+######################################################################################
+library(ipred)
+tree_bag <- bagging(f, data=kc_train, coob=TRUE)
+
+y_hat_train <- predict(tree_bag, kc_train)
+bag_mse_train <- mean((y_hat_train - y_train)^2)
+y_hat_test <- predict(tree_bag, kc_test)
+bag_mse_test <- mean((y_hat_test - y_test)^2)
+
+
+
+######################################################################################
+
+#Generating a Prediction matrix for each Tree
+n.trees = seq(from=1 ,to=1000, by=10)
+predmatrix<-predict(fit_btree, kc_train, n.trees = n.trees)
+dim(predmatrix) #dimentions of the Prediction Matrix
+View(predmatrix)
+
+#Calculating The Mean squared Test Error
+train.error <- with(kc_train, apply( (predmatrix- y_train)^2,2,mean))
+head(train.error) #contains the Mean squared test error for each of the 100 trees averaged
+
+#Plotting the test error vs number of trees
+
+plot(n.trees , train.error , pch=19,col="blue",xlab="Number of Trees",
+     ylab="Test Error", main = "Perfomance of Boosting on Test Set", ylim = c(0, 200000))
+
+abline(h = min(tree_mse_test_random),col="red") #test.err is the test error of a Random forest fitted on same data
+legend("topright",c("Minimum Test error Line for Random Forests"),col="red",lty=1,lwd=1)
+

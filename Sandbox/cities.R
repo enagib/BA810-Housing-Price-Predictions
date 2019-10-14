@@ -291,7 +291,7 @@ kc_test <- kc_cities[-train_index,]
 
 
 x1_train <- model.matrix(f, kc_train)[, -1]
-x1_test <- model.matrix(t1, kc_test)[, -1]
+x1_test <- model.matrix(f, kc_test)[, -1]
 
 y_train <- kc_train$price
 y_test <- kc_test$price
@@ -357,8 +357,6 @@ tree_mse_train <- mean((y_hat_train - y_train)^2)
 y_hat_test <- predict(tree_bag, kc_test)
 tree_mse_test <- mean((y_hat_test - y_test)^2)
 
-
-
 ######################################################################################
 
 #Generating a Prediction matrix for each Tree
@@ -374,7 +372,7 @@ head(train.error) #contains the Mean squared test error for each of the 100 tree
 #Plotting the test error vs number of trees
 
 plot(n.trees , train.error , pch=19,col="blue",xlab="Number of Trees",
-     ylab="Test Error", main = "Perfomance of Boosting on Test Set", ylim = c(0, 200000))
+     ylab="Test MSE", main = "Perfomance of Boosting on Test Set", ylim = c(0, 150000))
 
 abline(h = min(tree_mse_test_random),col="red") #test.err is the test error of a Random forest fitted on same data
 legend("topright",c("Minimum Test error Line for Random Forests"),col="red",lty=1,lwd=1)
