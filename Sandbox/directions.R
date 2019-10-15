@@ -373,3 +373,11 @@ plot(n.trees , train.error , pch=19,col="blue",xlab="Number of Trees",
 abline(h = min(tree_mse_test_random),col="red") #test.err is the test error of a Random forest fitted on same data
 legend("topright",c("Minimum Test error Line for Random Forests"),col="red",lty=1,lwd=1)
 
+range(kc_cities$price)
+summary(kc_cities$price)
+
+ggplot(kc_cities) +
+  geom_histogram(aes(x=price), binwidth  = 1000)
+
+kc_cities %>% 
+  filter(price < 100) %>% View

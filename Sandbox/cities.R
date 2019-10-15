@@ -47,9 +47,10 @@ kc_houses %>% mutate(SW =ifelse(direction =="S W",1,0)) %>%
 
 kc_house_new <- kc_house_new %>% mutate(years_old = 2019 - yr_built)
 
-kc_house_new$price <- kc_house_new$price/1000
+kc_house_new$price <- kc_house_new$price/100000
 
 read_excel("Sandbox/zipcode.xlsx") -> ddzipcode
+ddzipcode %>% select(Zipcode, City) -> ddzipcode2
 left_join(kc_house_new, ddzipcode2, by = c("zipcode" = "Zipcode")) -> kc_house_new2
 kc_house_new2 %>% mutate(city = factor(City)) %>% select(-City) -> kc_house_new3
 kc_house_new3 %>% select(city) -> city
@@ -76,6 +77,7 @@ kc_cities <- kc_house_new_4 %>%
   select(-c(transaction_id,house_id, zipcode, 
             year_sold, month_sold, day_sold, yr_built, SW, NW, NE, SE))
 
+colnames(kc_house_new_4)
 ########################################################################################################
 # Eman - splitting our dataset into test and train
 ########################################################################################################
@@ -301,6 +303,7 @@ fit_rf <- randomForest(f,
                        ntree = 10,
                        do.trace = F)
 
+colnames(kc_cities)
 varImpPlot(fit_rf)
 
 
@@ -334,7 +337,7 @@ tree_mse_test <- mean((y_hat_test - y_test)^2)
 fit_btree <- gbm(f,
                  data = kc_train,
                  distribution = "gaussian",
-                 n.trees = 1000,
+                 n.trees = 1500,
                  interaction.depth = 4,
                  shrinkage = 0.001)
 
@@ -353,14 +356,15 @@ library(ipred)
 tree_bag <- bagging(f, data=kc_train, coob=TRUE)
 
 y_hat_train <- predict(tree_bag, kc_train)
-tree_mse_train <- mean((y_hat_train - y_train)^2)
+
+tree_mse_train_bag <- mean((y_hat_train - y_train)^2)
 y_hat_test <- predict(tree_bag, kc_test)
-tree_mse_test <- mean((y_hat_test - y_test)^2)
+tree_mse_test_bag <- mean((y_hat_test - y_test)^2)
 
 ######################################################################################
 
 #Generating a Prediction matrix for each Tree
-n.trees = seq(from=1 ,to=1000, by=10)
+n.trees = seq(from=1 ,to=1500, by=10)
 predmatrix<-predict(fit_btree, kc_train, n.trees = n.trees)
 dim(predmatrix) #dimentions of the Prediction Matrix
 View(predmatrix)
@@ -370,9 +374,17 @@ train.error <- with(kc_train, apply( (predmatrix- y_train)^2,2,mean))
 head(train.error) #contains the Mean squared test error for each of the 100 trees averaged
 
 #Plotting the test error vs number of trees
-
+par(xpd=FALSE)
 plot(n.trees , train.error , pch=19,col="blue",xlab="Number of Trees",
-     ylab="Test MSE", main = "Perfomance of Boosting on Test Set", ylim = c(0, 150000))
+     ylab="Test MSE", main = "Perfomance of Boosting on Test Set",ylim = c(0, 15))
 
 abline(h = min(tree_mse_test_random),col="red") #test.err is the test error of a Random forest fitted on same data
-legend("topright",c("Minimum Test error Line for Random Forests"),col="red",lty=1,lwd=1)
+abline(h = min(tree_mse_test_bag),col="yellow")
+abline(h = min(tree_mse_test),col="grey")
+legend("topright",c("Minimum MSE test for Random Forests", "Minimum MSE test for Bagging",
+                    "Minimum MSE test for tree"),col= c("red", "yellow", "grey"),lty=1,lwd=1)
+
+
+legend("topright",c("Minimum MSE test for Random Forests"),col="red",lty=1,lwd=1)
+legend("topright",c("Minimum MSE test for Bagging"),col="yellow",lty=1,lwd=1)
+legend("topright",c("Minimum MSE test for tree"),col="grey",lty=1,lwd=1)
